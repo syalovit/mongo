@@ -1,20 +1,18 @@
+t = db.group1;
+t.drop()
 
-t = db.not1;
-t.drop();
+t.save( { a: 0 } );
+t.save( { a: [ 1 , 2 , 3 ] } );
+t.save( { a: [ 1 , 2 , 3 , 4 , 5 ] } );
+t.save( { a: [ 2 , 3 ] } );
+t.save( { a: [ 6 , 7 ] } );
+t.save( { a: [ 6 , 7 , 8 , 9 , 2 , 4 , 3 ] } );
+t.save( { a: [ 6 , 7 , 8 , 9 , 2 , 1 , 3 ] } );
 
+res = t.find ( { a: { $not : { $all: [ 2, 3 ] } }   }  ).itcount();
+assert.eq(res, 2, "ZZZ")
 
-t.insert({a:1})
-t.insert({a:2})
-t.insert({})
-
-function test( name ){
-    assert.eq( 3 , t.find().count() , name + "A" );
-    assert.eq( 1 , t.find( { a : 1 } ).count() , name + "B" );
-    assert.eq( 2 , t.find( { a : { $ne : 1 } } ).count() , name + "C" );  // SERVER-198
-    assert.eq( 1 , t.find({a:{$in:[1]}}).count()  , name + "D" );
-    assert.eq( 2 , t.find({a:{$nin:[1]}}).count() , name + "E" ); // SERVER-198
-}
-
-test( "no index" );
 t.ensureIndex( { a : 1 } );
-test( "with index" );
+res = t.find ( { a: { $not : { $all: [ 2, 3 ] } }   }  ).itcount();
+assert.eq(res, 2, "indexed")
+

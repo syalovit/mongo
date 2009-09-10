@@ -421,6 +421,8 @@ namespace mongo {
                 return BSONObj::opALL;
             else if ( fn[1] == 's' && fn[2] == 'i' && fn[3] == 'z' && fn[4] == 'e' && fn[5] == 0 )
                 return BSONObj::opSIZE;
+            else if ( fn[1] == 'n' && fn[2] == 'o' && fn[3] == 't' && fn[4] == 0)
+                return BSONObj::opNOT;
         }
         return BSONObj::Equality;
     }

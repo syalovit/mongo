@@ -86,6 +86,9 @@ namespace mongo {
         case BSONObj::opMOD: {
             break;
         }
+        case BSONObj::opNOT: {
+            break;
+        }
         default:
             break;
         }

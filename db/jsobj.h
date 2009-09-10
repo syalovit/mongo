@@ -953,7 +953,8 @@ namespace mongo {
             opALL = 0x0B,
             NIN = 0x0C,
             opEXISTS = 0x0D,
-            opMOD = 0x0E
+            opMOD = 0x0E,
+            opNOT = 0x0F
         };        
     };
     ostream& operator<<( ostream &s, const BSONObj &o );

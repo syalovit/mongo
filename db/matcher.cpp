@@ -247,6 +247,11 @@ namespace mongo {
                             basics.push_back( BasicMatcher( e , BSONObj::opIN , fe.embeddedObject() ) );
                             ok = true;
                         }
+                        else if ( fn[1] == 'n' && fn[2] == 'o' && fn[3] == 't')
+                        {
+                            basics.push_back ( BasicMatcher( e , BSONObj::opNOT , fe.wrap()  ) );
+                            ok = true;
+                        }
                         else if ( fn[1] == 'm' && fn[2] == 'o' && fn[3] == 'd' && fn[4] == 0 && fe.type() == Array ) {
                             // $mod
                             basics.push_back( BasicMatcher( e , BSONObj::opMOD ) );
@@ -307,7 +312,6 @@ namespace mongo {
             // { $in : [1,2,3] }
             return bm.myset->count(l);
         }
-
         if ( op == BSONObj::opSIZE ) {
             if ( l.type() != Array )
                 return 0;
@@ -507,6 +511,22 @@ namespace mongo {
             BasicMatcher& bm = basics[i];
             BSONElement& m = bm.toMatch;
             // -1=mismatch. 0=missing element. 1=match
+            if (bm.compareOp == BSONObj::opNOT)
+            {
+                BSONObjIterator ai(m.embeddedObject());
+                BSONElement ele = ai.next();
+                BSONObjBuilder bld;
+                if (ele.type() != RegEx)
+                    bld.append(m.fieldName(), ele.embeddedObject());
+                else
+                    {
+                        bld.appendRegex(m.fieldName(), ele.regex(), ele.regexFlags());
+                    }
+		        BSONObj obj = bld.obj();
+                JSMatcher _internal(obj,constrainIndexKey_);
+	            int cmp = _internal.matches(jsobj,deep);
+		        return (cmp == 0) ? 1 : !cmp; 
+            }
             int cmp = matchesDotted(m.fieldName(), m, jsobj, bm.compareOp, bm, deep);
             if ( cmp < 0 )
                 return false;
