@@ -44,6 +44,11 @@ namespace mongo {
         return "?";
     }
 
+    bool haveLocalShardingInfo( const string& ns ){
+        assert( 0 );
+        return false;
+    }
+
     void usage( char * argv[] ){
         out() << argv[0] << " usage:\n\n";
         out() << " -v+  verbose\n";
@@ -164,8 +169,14 @@ int main(int argc, char* argv[], char *envp[] ) {
         cerr << "couldn't connectd to config db" << endl;
         return 7;
     }
-
+    
     assert( configServer.ok() );
+    
+    int configError = configServer.checkConfigVersion();
+    if ( configError ){
+        cerr << "config server error: " << configError << endl;
+        return configError;
+    }
 
     init();
     start();
