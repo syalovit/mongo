@@ -53,7 +53,8 @@ namespace mongo {
 
         if ( e.eoo() )
             return;
-        if ( e.type() == RegEx ) {
+        std::string fieldName = e.fieldName();
+        if ( (e.type() == RegEx) && (fieldName != "$not") ) {
             const string r = e.simpleRegex();
             if ( r.size() ) {
                 lower = addObj( BSON( "" << r ) ).firstElement();
@@ -93,7 +94,7 @@ namespace mongo {
             break;
         }
         
-        if ( optimize ){
+        if ( optimize && (fieldName != "$not") ){
             if ( lower.type() != MinKey && upper.type() == MaxKey && lower.isSimpleType() ){ // TODO: get rid of isSimpleType
                 BSONObjBuilder b;
                 b.appendMaxForType( lower.fieldName() , lower.type() );

@@ -9,5 +9,5 @@ t.save( { name : "aaron" } );
 
 t.ensureIndex( { name : 1 } );
 
-//assert.eq( 2 , t.find( { name : { $not : /^e.*/ } } ).count() , "index count ne" );
+assert.eq( 2 , t.find( { name : { $not : /^e.*/ } } ).count() , "index count ne" );
 // fix for indexing
