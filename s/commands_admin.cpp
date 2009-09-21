@@ -270,14 +270,18 @@ namespace mongo {
                     b.appendBool( "unique" , true ); 
                     if ( conn->count( config->getName() + ".system.indexes" , b.obj() ) ){
                         errmsg = "can't shard collection with unique indexes";
+                        conn.done();
                         return false;
                     }
 
                     BSONObj res = conn->findOne( config->getName() + ".system.namespaces" , BSON( "name" << ns ) );
                     if ( res["options"].type() == Object && res["options"].embeddedObject()["capped"].trueValue() ){
                         errmsg = "can't shard capped collection";
+                        conn.done();
                         return false;
                     }
+
+                    conn.done();
                 }
 
                 config->shardCollection( ns , key , cmdObj["unique"].trueValue() );
@@ -468,7 +472,14 @@ namespace mongo {
             bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool){
                 ScopedDbConnection conn( configServer.getPrimary() );
 
-                BSONObj shard = BSON( "host" << cmdObj["addshard"].valuestrsafe() );
+                BSONObj shard;
+                {
+                    BSONObjBuilder b;
+                    b.append( "host" , cmdObj["addshard"].valuestrsafe() );
+                    if ( cmdObj["maxSize"].isNumber() )
+                        b.append( cmdObj["maxSize"] );
+                    shard = b.obj();
+                }
 
                 BSONObj old = conn->findOne( "config.shards" , shard );
                 if ( ! old.isEmpty() ){
@@ -481,12 +492,14 @@ namespace mongo {
                 try {
                     ScopedDbConnection newShardConn( shard["host"].valuestrsafe() );
                     newShardConn->getLastError();
+                    newShardConn.done();
                 }
                 catch ( DBException& e ){
                     errmsg = "couldn't connect to new shard";
                     result.append( "host" , shard["host"].valuestrsafe() );
                     result.append( "exception" , e.what() );
                     result.append( "ok" , 0 );
+                    conn.done();
                     return false;
                 }
 
@@ -582,13 +595,60 @@ namespace mongo {
                 help << "check for an error on the last command executed";
             }
             CmdShardingGetLastError() : Command("getlasterror") { }
-            virtual bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool) {
-                errmsg += "getlasterror not working yet for sharded environments";
-                result << "ok" << 0;
-                return false;
+            virtual bool run(const char *nsraw, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool) {
+                string dbName = nsraw;
+                dbName = dbName.substr( 0 , dbName.size() - 5 );
+                
+                DBConfig * conf = grid.getDBConfig( dbName , false );
+                
+                ClientInfo * client = ClientInfo::get();
+                set<string> * shards = client->getPrev();
+                
+                if ( shards->size() == 0 ){
+                    result.appendNull( "err" );
+                    result.append( "ok" , 1 );
+                    return true;
+                }
+                
+                if ( shards->size() == 1 ){
+                    string theShard = *(shards->begin() );
+                    result.append( "theshard" , theShard.c_str() );
+                    ScopedDbConnection conn( theShard );
+                    BSONObj res;
+                    bool ok = conn->runCommand( conf->getName() , cmdObj , res );
+                    result.appendElements( res );
+                    conn.done();
+                    return ok;
+                }
+                
+                vector<string> errors;
+                for ( set<string>::iterator i = shards->begin(); i != shards->end(); i++ ){
+                    string theShard = *i;
+                    ScopedDbConnection conn( theShard );
+                    string temp = conn->getLastError();
+                    if ( temp.size() )
+                        errors.push_back( temp );
+                    conn.done();
+                }
+                
+                if ( errors.size() == 0 ){
+                    result.appendNull( "err" );
+                    result.append( "ok" , 1 );
+                    return true;
+                }
+                
+                result.append( "err" , errors[0].c_str() );
+                
+                BSONObjBuilder all;
+                for ( unsigned i=0; i<errors.size(); i++ ){
+                    all.append( all.numStr( i ).c_str() , errors[i].c_str() );
+                }
+                result.appendArray( "errs" , all.obj() );
+                result.append( "ok" , 1 );
+                return true;
             }
         } cmdGetLastError;
-
+        
     }
 
 } // namespace mongo

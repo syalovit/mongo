@@ -363,9 +363,13 @@ namespace mongo {
         bool createCollection(const string &ns, unsigned size = 0, bool capped = false, int max = 0, BSONObj *info = 0);
 
         /** Get error result from the last operation on this connection. 
-            @return error or empty string if no error.
+            @return error message text, or empty string if no error.
         */
         string getLastError();
+		/** Get error result from the last operation on this connection. 
+			@return full error object.
+		*/
+		BSONObj getLastErrorDetailed();
 
         /** Return the last error which has occurred, even if not the very last operation.
 
@@ -611,6 +615,8 @@ namespace mongo {
             resetIndexCache();
             return ret;
         }        
+        
+        virtual bool isFailed() const = 0;
 
     private:
         set<string> _seenIndexes;
@@ -801,7 +807,11 @@ namespace mongo {
         virtual void say( Message &toSend ) { assert(false); }
         virtual void sayPiggyBack( Message &toSend ) { assert(false); }
         virtual void checkResponse( const char *data, int nReturned ) { assert(false); }
-
+        
+        bool isFailed() const {
+            // TODO: this really should check isFailed on current master as well
+            return master > NotSetR;
+        }
     };
     
 

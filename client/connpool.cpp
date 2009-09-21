@@ -29,7 +29,7 @@ namespace mongo {
     
     DBClientBase* DBConnectionPool::get(const string& host) {
         boostlock L(poolMutex);
-
+        
         PoolForHost *&p = pools[host];
         if ( p == 0 )
             p = new PoolForHost();
@@ -45,6 +45,7 @@ namespace mongo {
                     return 0;
                 }
                 c = cc;
+                onCreate( c );
             }
             else { 
                 DBClientPaired *p = new DBClientPaired();
@@ -59,6 +60,7 @@ namespace mongo {
         }
         DBClientBase *c = p->pool.top();
         p->pool.pop();
+        onHandedOut( c );
         return c;
     }
 
@@ -79,6 +81,28 @@ namespace mongo {
             for ( vector<DBClientBase*>::iterator i=all.begin(); i != all.end(); i++ ){
                 p->pool.push( *i );
             }
+        }
+    }
+
+    void DBConnectionPool::addHook( DBConnectionHook * hook ){
+        _hooks.push_back( hook );
+    }
+
+    void DBConnectionPool::onCreate( DBClientBase * conn ){
+        if ( _hooks.size() == 0 )
+            return;
+        
+        for ( list<DBConnectionHook*>::iterator i = _hooks.begin(); i != _hooks.end(); i++ ){
+            (*i)->onCreate( conn );
+        }
+    }
+
+    void DBConnectionPool::onHandedOut( DBClientBase * conn ){
+        if ( _hooks.size() == 0 )
+            return;
+        
+        for ( list<DBConnectionHook*>::iterator i = _hooks.begin(); i != _hooks.end(); i++ ){
+            (*i)->onHandedOut( conn );
         }
     }
 

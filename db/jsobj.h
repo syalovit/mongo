@@ -978,8 +978,12 @@ namespace mongo {
     typedef set< BSONObj, BSONObjCmpDefaultOrder > BSONObjSetDefaultOrder;
 
 /** Use BSON macro to build a BSONObj from a stream 
+
     e.g., 
        BSON( "name" << "joe" << "age" << 33 )
+
+    with auto-generated object id:
+       BSON( GENOID << "name" << "joe" << "age" << 33 )
  
     The labels GT, GTE, LT, LTE, NE can be helpful for stream-oriented construction
     of a BSONObj, particularly when assembling a Query.  For example,
@@ -987,6 +991,13 @@ namespace mongo {
     { a: { \$gt: 23.4, \$ne: 30 }, b: 2 }.
 */
 #define BSON(x) (( mongo::BSONObjBuilder() << x ).obj())
+
+    /* Utility class to auto assign object IDs.
+       Example: 
+         cout << BSON( GENOID << z << 3 ); // { _id : ..., z : 3 }
+    */
+    extern struct IDLabeler { } GENOID;
+    BSONObjBuilder& operator<<(BSONObjBuilder& b, IDLabeler& id);
 
     // Utility class to implement GT, GTE, etc as described above.
     class Labeler {
@@ -1142,14 +1153,17 @@ namespace mongo {
         }
 
         /** Append a BSON Object ID (OID type). */
-        void appendOID(const char *fieldName, OID *oid = 0) {
+        void appendOID(const char *fieldName, OID *oid = 0 , bool generateIfBlank = false ) {
             b.append((char) jstOID);
             b.append(fieldName);
             if ( oid )
                 b.append( (void *) oid, 12 );
             else {
                 OID tmp;
-                memset( &tmp, 0, 12 );
+                if ( generateIfBlank )
+                    tmp.init();
+                else
+                    memset( &tmp, 0, 12 );
                 b.append( (void *) &tmp, 12 );
             }
         }

@@ -27,55 +27,10 @@
 #include "../scripting/engine.h"
 
 namespace mongo {
-
-#if defined(_WIN32)
-
-} // namespace mongo
-
-#include <hash_map>
-using namespace stdext;
-
-namespace mongo {
-
-    typedef const char * MyStr;
-    struct less_str {
-        bool operator()(const MyStr & x, const MyStr & y) const {
-            if ( strcmp(x, y) > 0)
-                return true;
-
-            return false;
-        }
-    };
-
-    typedef hash_map<const char*, int, hash_compare<const char *, less_str> > strhashmap;
-
-#else
-
-} // namespace mongo
-
-#include <ext/hash_map>
-
-namespace mongo {
-
-    using namespace __gnu_cxx;
-
-    typedef const char * MyStr;
-    struct eq_str {
-        bool operator()(const MyStr & x, const MyStr & y) const {
-            if ( strcmp(x, y) == 0)
-                return true;
-
-            return false;
-        }
-    };
-
-    typedef hash_map<const char*, int, hash<const char *>, eq_str > strhashmap;
-
-#endif
-
-//#include "minilex.h"
-//MiniLex minilex;
-
+    
+    //#include "minilex.h"
+    //MiniLex minilex;
+    
     class Where {
     public:
         Where() {
@@ -114,6 +69,10 @@ namespace mongo {
     KeyValJSMatcher::KeyValJSMatcher(const BSONObj &_jsobj, const BSONObj &indexKeyPattern) :
     keyMatcher_(_jsobj.filterFieldsUndotted(indexKeyPattern, true), indexKeyPattern),
     recordMatcher_(_jsobj) {
+        needRecord = ! ( 
+                        recordMatcher_.keyMatch() && 
+                        keyMatcher_.jsobj.nFields() == recordMatcher_.jsobj.nFields()
+                         );
     }
     
     bool KeyValJSMatcher::matches(const BSONObj &key, const DiskLoc &recLoc, bool *deep) {
@@ -122,6 +81,11 @@ namespace mongo {
                 return false;
             }
         }
+        
+        if ( ! needRecord ){
+            return true;
+        }
+
         return recordMatcher_.matches(recLoc.rec(), deep);
     }
     

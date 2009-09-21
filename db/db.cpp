@@ -59,7 +59,7 @@ namespace mongo {
     extern int opLogging;
     extern long long oplogSize;
     extern OpLog _oplog;
-	extern int lenForNewNsFiles;
+    extern int lenForNewNsFiles;
 
     extern int ctr;
     extern int callDepth;
@@ -145,18 +145,6 @@ namespace mongo {
         }
     }
 
-    class JniMessagingPort : public AbstractMessagingPort {
-    public:
-        JniMessagingPort(Message& _container) : container(_container) { }
-        void reply(Message& received, Message& response, MSGID) {
-            container = response;
-        }
-        void reply(Message& received, Message& response) {
-            container = response;
-        }
-        Message & container;
-    };
-
 } // namespace mongo
 
 #include "lasterror.h"
@@ -205,7 +193,7 @@ namespace mongo {
                     break;
                 }
 
-                le->nPrev++;
+                lastError.startRequest( m , le );
 
                 DbResponse dbresponse;
                 if ( !assembleResponse( m, dbresponse, dbMsgPort.farEnd.sa ) ) {
@@ -245,7 +233,7 @@ namespace mongo {
         }
 
         // any thread cleanup can happen here
-        
+
         globalScriptEngine->threadDone();
     }
 
@@ -505,7 +493,7 @@ int main(int argc, char* argv[], char *envp[] )
         ("auth", "run with security")
         ("objcheck", "inspect client data for validity on receipt")
         ("quota", "enable db quota management")
-        ("appsrvpath", po::value<string>(), "root directy for the babble app server")
+        ("appsrvpath", po::value<string>(), "root directory for the babble app server")
         ("nocursors", "diagnostic/debugging option")
         ("nohints", "ignore query hints")
         ("nohttpinterface", "disable http interface")
@@ -515,6 +503,7 @@ int main(int argc, char* argv[], char *envp[] )
         ("oplog", po::value<int>(), "0=off 1=W 2=R 3=both 7=W+some reads")
         ("sysinfo", "print some diagnostic system information")
         ("upgrade", "upgrade db if needed")
+        ("notablescan", "do not allow table scans")
 #if defined(_WIN32)
         ("install", "install mongodb service")
         ("remove", "remove mongodb service")
@@ -570,10 +559,14 @@ int main(int argc, char* argv[], char *envp[] )
     }
 
     DEV out() << "warning: DEV mode enabled\n";
-    
+
     UnitTest::runTests();
-    
-    if (argc >= 2) {
+
+    if (argc == 1) {
+        cout << dbExecCommand << " --help for help and startup options" << endl;
+    }
+
+    {
         bool installService = false;
         bool removeService = false;
         bool startService = false;
@@ -671,8 +664,8 @@ int main(int argc, char* argv[], char *envp[] )
             string lp = params["logpath"].as<string>();
             uassert( "logpath has to be non-zero" , lp.size() );
             cout << "all output going to: " << lp << endl;
-            int fd = open( lp.c_str() , 
-                           O_CREAT | O_WRONLY | ( params.count("logappend" ) ? O_APPEND : O_TRUNC ) , 
+            int fd = open( lp.c_str() ,
+                           O_CREAT | O_WRONLY | ( params.count("logappend" ) ? O_APPEND : O_TRUNC ) ,
                            S_IRUSR | S_IWUSR );
             assert( fd );
             assert( dup2( fd , STDOUT_FILENO ) > 0 );
@@ -709,6 +702,9 @@ int main(int argc, char* argv[], char *envp[] )
         if (params.count("upgrade")) {
             shouldRepairDatabases = 1;
         }
+        if (params.count("notablescan")) {
+            cmdLine.notablescan = true;
+        }
         if (params.count("deDupMem")) {
             uasserted("deprecated");
             long x = params["deDupMem"].as<long>();
@@ -729,7 +725,7 @@ int main(int argc, char* argv[], char *envp[] )
             master = true;
         }
         if (params.count("slave")) {
-			slave = SimpleSlave;
+            slave = SimpleSlave;
         }
         if (params.count("source")) {
             /* specifies what the source in local.sources should be */
@@ -752,12 +748,12 @@ int main(int argc, char* argv[], char *envp[] )
         if (params.count("autoresync")) {
             autoresync = true;
         }
-		if( params.count("nssize") ) { 
+        if( params.count("nssize") ) {
             int x = params["nssize"].as<int>();
             uassert("bad --nssize arg", x > 0 && x <= (0x7fffffff/1024/1024));
-			lenForNewNsFiles = x * 1024 * 1024;
+            lenForNewNsFiles = x * 1024 * 1024;
             assert(lenForNewNsFiles > 0);
-		}
+        }
         if (params.count("oplogSize")) {
             long x = params["oplogSize"].as<long>();
             uassert("bad --oplogSize arg", x > 0);
@@ -834,9 +830,6 @@ int main(int argc, char* argv[], char *envp[] )
             dbexit( EXIT_CLEAN );
         }
 #endif
-    } 
-    else {
-        cout << dbExecCommand << " --help for help and startup options" << endl;
     }
 
     initAndListen(cmdLine.port, appsrvPath);
@@ -923,39 +916,39 @@ void ctrlCTerminate() {
         dbexit( EXIT_KILL );
     }
 }
-BOOL CtrlHandler( DWORD fdwCtrlType ) 
-{ 
-    switch( fdwCtrlType ) 
-    { 
-    case CTRL_C_EVENT: 
+BOOL CtrlHandler( DWORD fdwCtrlType )
+{
+    switch( fdwCtrlType )
+    {
+    case CTRL_C_EVENT:
         rawOut("Ctrl-C signal\n");
         ctrlCTerminate();
         return( TRUE );
-    case CTRL_CLOSE_EVENT: 
+    case CTRL_CLOSE_EVENT:
         rawOut("CTRL_CLOSE_EVENT signal\n");
         ctrlCTerminate();
-        return( TRUE ); 
-    case CTRL_BREAK_EVENT: 
+        return( TRUE );
+    case CTRL_BREAK_EVENT:
         rawOut("CTRL_BREAK_EVENT signal\n");
         ctrlCTerminate();
         return TRUE;
-    case CTRL_LOGOFF_EVENT: 
+    case CTRL_LOGOFF_EVENT:
         rawOut("CTRL_LOGOFF_EVENT signal (ignored)\n");
-        return FALSE; 
-    case CTRL_SHUTDOWN_EVENT: 
+        return FALSE;
+    case CTRL_SHUTDOWN_EVENT:
          rawOut("CTRL_SHUTDOWN_EVENT signal (ignored)\n");
-         return FALSE; 
-    default: 
-        return FALSE; 
-    } 
-} 
+         return FALSE;
+    default:
+        return FALSE;
+    }
+}
 
     void setupSignals() {
-        if( SetConsoleCtrlHandler( (PHANDLER_ROUTINE) CtrlHandler, TRUE ) ) 
+        if( SetConsoleCtrlHandler( (PHANDLER_ROUTINE) CtrlHandler, TRUE ) )
             ;
         else
             massert("Couldn't register Windows Ctrl-C handler", false);
-    } 
+    }
 #endif
 
 } // namespace mongo

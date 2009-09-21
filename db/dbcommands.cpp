@@ -323,6 +323,33 @@ namespace mongo {
         }
     } cmdGetPrevError;
 
+    class CmdSwitchToClientErrors : public Command {
+    public:
+        virtual bool requiresAuth() { return false; }
+        virtual bool logTheOp() {
+            return false;
+        }
+        virtual void help( stringstream& help ) const {
+            help << "convert to id based errors rather than connection based";
+        }
+        virtual bool slaveOk() {
+            return true;
+        }
+        CmdSwitchToClientErrors() : Command("switchtoclienterrors") {}
+        bool run(const char *ns, BSONObj& cmdObj, string& errmsg, BSONObjBuilder& result, bool fromRepl) {
+            if ( lastError.getID() ){
+                errmsg = "already in client id mode";
+                return false;
+            }
+            LastError *le = lastError.get();
+            assert( le );
+            le->nPrev--; 
+            le->overridenById = true;
+            result << "ok" << 1;
+            return true;
+        }
+    } cmdSwitchToClientErrors;
+
     class CmdDropDatabase : public Command {
     public:
         virtual bool logTheOp() {
@@ -1160,28 +1187,52 @@ namespace mongo {
             help << "see http://www.mongodb.org/display/DOCS/Aggregation";
         }
 
-        BSONObj getKey( const BSONObj& obj , const BSONObj& keyPattern , const string keyFunction , double avgSize ){
+        BSONObj getKey( const BSONObj& obj , const BSONObj& keyPattern , ScriptingFunction func , double avgSize , Scope * s ){
+            if ( func ){
+                BSONObjBuilder b( obj.objsize() + 32 );
+                b.append( "0" , obj );
+                int res = s->invoke( func , b.obj() );
+                uassert( (string)"invoke failed in $keyf: " + s->getError() , res == 0 );
+                int type = s->type("return");
+                uassert( "return of $key has to be a function" , type == Object );
+                return s->getObject( "return" );
+            }
             return obj.extractFields( keyPattern , true );
         }
         
-        bool group( string realdbname , auto_ptr<DBClientCursor> cursor , BSONObj keyPattern , string keyFunction , string reduceCode , BSONObj initial , string& errmsg , BSONObjBuilder& result ){
+        bool group( string realdbname , auto_ptr<DBClientCursor> cursor , 
+                    BSONObj keyPattern , string keyFunctionCode , string reduceCode , const char * reduceScope ,
+                    BSONObj initial , string finalize ,
+                    string& errmsg , BSONObjBuilder& result ){
 
-            if ( keyFunction.size() ){
-                errmsg = "can't only handle real keys right now, not functions";
-                return false;
-            }
 
             auto_ptr<Scope> s = globalScriptEngine->getPooledScope( realdbname );
             s->localConnect( realdbname.c_str() );
+            
+            if ( reduceScope )
+                s->init( reduceScope );
 
             s->setObject( "$initial" , initial , true );
             
             s->exec( "$reduce = " + reduceCode , "reduce setup" , false , true , true , 100 );
             s->exec( "$arr = [];" , "reduce setup 2" , false , true , true , 100 );
-            ScriptingFunction f = s->createFunction( "function(){ "
-                                                     "  if ( $arr[n] == null ){ next = {}; Object.extend( next , $key ); Object.extend( next , $initial ); $arr[n] = next; next = null; }"
-                                                     "  $reduce( obj , $arr[n] ); "
-                                                     "}" );
+            ScriptingFunction f = s->createFunction(
+                "function(){ "
+                "  if ( $arr[n] == null ){ "
+                "    next = {}; "
+                "    Object.extend( next , $key ); "
+                "    Object.extend( next , $initial ); "
+                "    $arr[n] = next; "
+                "    next = null; "
+                "  } "
+                "  $reduce( obj , $arr[n] ); "
+                "}" );
+
+            ScriptingFunction keyFunction = 0;
+            if ( keyFunctionCode.size() ){
+                keyFunction = s->createFunction( keyFunctionCode.c_str() );
+            }
+
 
             double keysize = keyPattern.objsize() * 3;
             double keynum = 1;
@@ -1191,7 +1242,7 @@ namespace mongo {
             
             while ( cursor->more() ){
                 BSONObj obj = cursor->next();
-                BSONObj key = getKey( obj , keyPattern , keyFunction , keysize / keynum );
+                BSONObj key = getKey( obj , keyPattern , keyFunction , keysize / keynum , s.get() );
                 keysize += key.objsize();
                 keynum++;
                 
@@ -1199,6 +1250,8 @@ namespace mongo {
                 if ( n == 0 ){
                     n = map.size();
                     s->setObject( "$key" , key , true );
+
+                    uassert( "group() can't handle more than 10000 unique keys" , n < 10000 );
                 }
                 
                 s->setObject( "obj" , obj , true );
@@ -1206,6 +1259,19 @@ namespace mongo {
                 if ( s->invoke( f , BSONObj() , 0 , true ) ){
                     throw UserException( (string)"reduce invoke failed: " + s->getError() );
                 }
+            }
+            
+            if (!finalize.empty()){
+                s->exec( "$finalize = " + finalize , "finalize define" , false , true , true , 100 );
+                ScriptingFunction g = s->createFunction(
+                    "function(){ "
+                    "  for(var i=0; i < $arr.length; i++){ "
+                    "  var ret = $finalize($arr[i]); "
+                    "  if (ret !== undefined) "
+                    "    $arr[i] = ret; "
+                    "  } "
+                    "}" );
+                s->invoke( g , BSONObj() , 0 , true );
             }
             
             result.appendArray( "retval" , s->getObject( "$arr" ) );
@@ -1254,7 +1320,16 @@ namespace mongo {
                 // no key specified, will use entire object as key
             }
 
-            return group( realdbname , cursor , key , keyf , p["$reduce"].ascode() , p["initial"].embeddedObjectUserCheck() , errmsg , result );
+            BSONElement reduce = p["$reduce"];
+
+            string finalize;
+            if (p["finalize"].type())
+                finalize = p["finalize"].ascode();
+            
+            return group( realdbname , cursor , 
+                          key , keyf , reduce.ascode() , reduce.type() != CodeWScope ? 0 : reduce.codeWScopeScopeData() ,
+                          p["initial"].embeddedObjectUserCheck() , finalize ,
+                          errmsg , result );
         }
         
     } cmdGroup;

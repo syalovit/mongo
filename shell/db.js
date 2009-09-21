@@ -263,7 +263,18 @@ DB.prototype.help = function() {
     print("\tdb.getCollectionNames()");
     print("\tdb.currentOp() displays the current operation in the db" );
     print("\tdb.killOp() kills the current operation in the db" );
+    print("\tdb.printCollectionStats()" );
     print("\tdb.version() current version of the server" );
+}
+
+DB.prototype.printCollectionStats = function(){
+    this.getCollectionNames().forEach(
+        function(z){
+            print( z );
+            printjson( db[z].stats() );
+            print( "---" );
+        }
+    );
 }
 
 /**
@@ -439,7 +450,10 @@ DB.prototype.forceError = function(){
 }
 
 DB.prototype.getLastError = function(){
-    return this.runCommand( { getlasterror : 1 } ).err;
+    var res = this.runCommand( { getlasterror : 1 } );
+    if ( ! res.ok )
+        throw "getlasterror failed: " + tojson( res );
+    return res.err;
 }
 
 /* Return the last error which has occurred, even if not the very last error.

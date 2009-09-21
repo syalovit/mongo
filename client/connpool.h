@@ -26,6 +26,15 @@ namespace mongo {
     struct PoolForHost {
         std::stack<DBClientBase*> pool;
     };
+    
+    class DBConnectionHook {
+    public:
+        virtual ~DBConnectionHook(){}
+
+        virtual void onCreate( DBClientBase * conn ){}
+        virtual void onHandedOut( DBClientBase * conn ){}
+
+    };
 
     /** Database connection pool.
 
@@ -45,13 +54,20 @@ namespace mongo {
     class DBConnectionPool {
         boost::mutex poolMutex;
         map<string,PoolForHost*> pools; // servername -> pool
+        list<DBConnectionHook*> _hooks;
+        
+        void onCreate( DBClientBase * conn );
+        void onHandedOut( DBClientBase * conn );
     public:
         void flush();
         DBClientBase *get(const string& host);
         void release(const string& host, DBClientBase *c) {
+            if ( c->isFailed() )
+                return;
             boostlock L(poolMutex);
             pools[host]->pool.push(c);
         }
+        void addHook( DBConnectionHook * hook );
     };
 
     extern DBConnectionPool pool;
@@ -109,9 +125,9 @@ namespace mongo {
         }
 
         ~ScopedDbConnection() {
-            if ( _conn ) {
+            if ( _conn && ! _conn->isFailed() ) {
                 /* see done() comments above for why we log this line */
-                out() << "~ScopedDBConnection: _conn != null\n";
+                log() << "~ScopedDBConnection: _conn != null" << endl;
                 kill();
             }
         }

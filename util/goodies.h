@@ -219,21 +219,21 @@ namespace mongo {
             reset();
         }
         int millis() {
-            return micros() / 1000;
+            return (long)(micros() / 1000);
         }
-        int micros() {
-            unsigned n = curTimeMicros();
-            return tdiff(old, n);
+        unsigned long long micros() {
+            unsigned long long n = curTimeMicros64();
+            return n - old;
         }
-        int micros(unsigned& n) { // returns cur time in addition to timer result
-            n = curTimeMicros();
-            return tdiff(old, n);
+        unsigned long long micros(unsigned long long & n) { // returns cur time in addition to timer result
+            n = curTimeMicros64();
+            return n - old;
         }
         void reset() {
-            old = curTimeMicros();
+            old = curTimeMicros64();
         }
     private:
-        unsigned old;
+        unsigned long long old;
     };
 
     /*
@@ -305,5 +305,25 @@ namespace mongo {
 #else
     typedef void *HANDLE;
 #endif
+    
+    class ThreadLocalInt {
+    public:
+        ThreadLocalInt( int def = 0 ) : _def( def ){}
+
+        int get(){
+            int * val = _val.get();
+            if ( val )
+                return *val;
+            return _def;
+        }
+        void reset( int i ){
+            int * val = new int[1];
+            *val = i;
+            _val.reset( val );
+        }
+    private:
+        int _def;
+        boost::thread_specific_ptr<int> _val;
+    };
 
 } // namespace mongo

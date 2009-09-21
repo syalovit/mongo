@@ -58,13 +58,27 @@ namespace mongo {
 //        out() << "                                           in our hostname with \"-grid\".\n";
         out() << endl;
     }
+
+    class ShardingConnectionHook : public DBConnectionHook {
+    public:
+        virtual void onCreate( DBClientBase * conn ){
+            conn->simpleCommand( "admin" , 0 , "switchtoclienterrors" );
+        }
+        virtual void onHandedOut( DBClientBase * conn ){
+            ClientInfo::get()->addShard( conn->getServerAddress() );
+        }
+    } shardingConnectionHook;
     
     class ShardedMessageHandler : public MessageHandler {
     public:
         virtual ~ShardedMessageHandler(){}
         virtual void process( Message& m , AbstractMessagingPort* p ){
             Request r( m , p );
+            if ( logLevel > 5 ){
+                log(5) << "client id: " << hex << r.getClientId() << "\t" << r.getns() << "\t" << dec << r.op() << endl;
+            }
             try {
+                setClientId( r.getClientId() );
                 r.process();
             }
             catch ( DBException& e ){
@@ -76,7 +90,7 @@ namespace mongo {
             }
         }
     };
-
+    
     void init(){
         serverID.init();
     }
@@ -149,6 +163,8 @@ int main(int argc, char* argv[], char *envp[] ) {
         return 0;
     }
     
+    pool.addHook( &shardingConnectionHook );
+
     if ( argc <= 1 ) {
         usage( argv );
         return 3;
@@ -161,7 +177,7 @@ int main(int argc, char* argv[], char *envp[] ) {
         return 1;
     }
 
-    log() << argv[0] << " v0.2- (alpha 2) starting (--help for usage)" << endl;
+    log() << argv[0] << " v0.3- (alpha 3) starting (--help for usage)" << endl;
     printGitVersion();
     printSysInfo();
 
